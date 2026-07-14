@@ -1,0 +1,48 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Env & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Terraform
+infra/terraform/.terraform/
+infra/terraform/*.tfstate*
+infra/terraform/*.tfvars
+!infra/terraform/*.tfvars.example
+crash.log
+
+# Docker
+postgres_data/
+
+# Logs
+*.log
+npm-debug.log*

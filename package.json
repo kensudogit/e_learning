@@ -1,0 +1,15 @@
+{
+  "name": "e-learning-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "通信教育・eラーニング統合プラットフォーム",
+  "scripts": {
+    "dev:web": "npm --prefix apps/web run dev",
+    "dev:api": "cd apps/api && uvicorn app.main:app --reload --port 8000",
+    "lint:web": "npm --prefix apps/web run lint",
+    "build:web": "npm --prefix apps/web run build",
+    "compose:up": "docker compose up --build",
+    "compose:db": "docker compose up -d db redis",
+    "db:setup": "powershell -ExecutionPolicy Bypass -File ./scripts/setup-postgres.ps1"
+  }
+}
