@@ -47,16 +47,63 @@ const awsArchitecture = `                     Internet
         │
   CloudWatch・WAF・SES・SQS`;
 
+/** 本パッケージの Docker → ECR → ECS 運用構成 */
+const ecsDockerArchitecture = `  [リポジトリルート Dockerfile]
+   multi-stage: Next.js static → FastAPI + web_static
+              │
+              ▼  docker build / tag / push
+         Amazon ECR
+              │
+              ▼  タスク定義で image 参照
+    ECS Cluster (Fargate)
+         │
+         ├─ Service: elearning-app（現状: 単一コンテナ）
+         │     container PORT（既定 5000）
+         │     CMD: uvicorn app.main:app --host 0.0.0.0
+         │     ヘルス: GET /health
+         │
+         └─ （将来）受講 / 添削 / 管理 / バッチ にサービス分割
+              │
+         ALB ターゲットグループ
+              │
+    CloudWatch Logs · ローリング更新 · Auto Scaling`;
+
+const ecsBuildSteps = [
+  "前提: AWS CLI v2 · Docker · Terraform ≥ 1.5 · リージョン ap-northeast-1 推奨",
+  "成果物: ルート Dockerfile（API + 静的 Web 同梱）。ローカル分離は docker-compose.yml",
+  "1) 基盤: cd infra/terraform → terraform init / plan / apply（VPC·RDS·Cognito·ECS·CloudFront）",
+  "2) ECR: aws ecr create-repository --repository-name elearning-app",
+  "3) ログイン: aws ecr get-login-password | docker login …dkr.ecr.…amazonaws.com",
+  "4) ビルド: docker build -t elearning-app . （リポジトリルート）",
+  "5) タグ/push: docker tag …:latest <ACCOUNT>.dkr.ecr…/elearning-app:latest → docker push",
+  "6) タスク定義: CPU/MEM · イメージURI · PORT · 環境変数/Secrets · awslogs ドライバ",
+  "7) サービス: Fargate · desiredCount · ALB ターゲット（コンテナPORT一致）· /health",
+  "8) エッジ: CloudFront→ALB（+S3教材）· Route53 Alias · 必要なら WAF",
+  "9) 接続: DATABASE_URL(RDS/Aurora) · CORS_ORIGINS · WEB_BASE_URL空(同一オリジン) · Cognito",
+  "10) 初期データ: ECS Exec またはワンショットタスクで python -m app.scripts.seed",
+] as const;
+
+const ecsOpsSteps = [
+  "デプロイ更新: 新イメージ push → タスク定義 revision 更新 → サービス force-new-deployment",
+  "ローリング: minimumHealthyPercent / maximumPercent で無停止寄せ替え",
+  "ヘルス: ALB + コンテナヘルスチェックは /health（200）",
+  "ログ: CloudWatch Logs（/ecs/elearning-app 等）で uvicorn・アプリ出力を確認",
+  "スケール: Service Auto Scaling（CPU/ALB RequestCount）または desiredCount 手動変更",
+  "設定変更: Secrets Manager / SSM Parameter をタスク定義で注入（DATABASE_URL 等）",
+  "障害切り分け: タスク停止理由 → ログ → RDS 到達性（SG・subnet）→ ALB ターゲット健全性",
+  "バッチ将来: EventBridge / SQS トリガの別 Fargate タスク（ALB なし可）",
+  "現状対応: Phase1 は単一 FastAPI イメージ。受講/添削/管理/バッチ分割は Phase3",
+  "詳細コマンドは README「AWS デプロイ手順」「デプロイ（Docker）」を参照",
+] as const;
+
 const awsDeploySteps = [
   "構成図: Internet → Route53 → CloudFront → (S3 | ALB → ECS)",
-  "ECS(Fargate): 受講API / 添削API / 管理API / バッチ",
+  "ECS(Fargate) + Docker: ルート Dockerfile を ECR 経由で起動（上図「ECS × Docker」）",
   "認証・DB: Cognito → Aurora PostgreSQL(RDS)",
   "横断基盤: CloudWatch · WAF · SES · SQS",
-  "1) terraform apply（VPC・RDS/Aurora・Cognito・ECS・CloudFront）",
-  "2) ECR にイメージ push → ECS サービス起動（/health）",
-  "3) CloudFront に S3+ALB、Route53 Alias、WAF を設定",
-  "4) Cognito / SES / SQS を接続しシード投入",
-  "詳細は README「AWS 構成」「AWS デプロイ手順」",
+  "構築: terraform apply → ECR push → タスク定義/サービス → ALB·CloudFront",
+  "運用: ローリング更新 · /health · CloudWatch · Auto Scaling · seed",
+  "手順の詳細は「9. AWS デプロイ」内の構築・運用リストと README を参照",
 ] as const;
 
 const recommendedFlow = [
@@ -160,9 +207,16 @@ const steps = [
     items: [...localTips],
   },
   {
-    title: "9. AWS デプロイ",
-    body: "本番目標構成（Route53 / CloudFront / S3 / ALB / ECS / Cognito / Aurora）へのデプロイ手順です。構成図は上の「AWS Architecture」を参照。",
-    items: [...awsDeploySteps],
+    title: "9. AWS デプロイ（ECS × Docker）",
+    body: "本パッケージを Amazon ECS（Fargate）上の Docker コンテナで構築・運用する手順です。全体図は「AWS Architecture」、コンテナ流れは「ECS × Docker」を参照。",
+    items: [
+      "—— 構成の要点 ——",
+      ...awsDeploySteps,
+      "—— 構築（Build / Deploy）——",
+      ...ecsBuildSteps,
+      "—— 運用（Operate）——",
+      ...ecsOpsSteps,
+    ],
   },
 ] as const;
 
@@ -387,7 +441,29 @@ export function UsageGuidePanel({ open, onClose }: Props) {
             <pre>{awsArchitecture}</pre>
           </figure>
 
-          <p className={styles.scrollHint}>↓ 画面ごとの手順（9. AWS デプロイを含む）</p>
+          <section className={styles.featured} aria-label="ECS Docker">
+            <div className={styles.featuredHead}>
+              <span className={styles.featuredBadge}>ECS</span>
+              <strong>Docker コンテナでの構築・運用</strong>
+            </div>
+            <p>
+              ルート <code>Dockerfile</code> で Next.js 静的画面と FastAPI を1イメージにまとめ、ECR へ push したうえで
+              ECS Fargate サービスとして起動します。インフラ骨格は <code>infra/terraform</code>、ヘルスは{" "}
+              <code>/health</code>、更新は新イメージのローリングデプロイです。
+            </p>
+            <ul className={styles.items}>
+              <li>構築: terraform → ECR build/push → タスク定義 → ECS Service + ALB</li>
+              <li>運用: CloudWatch Logs · /health · force-new-deployment · Auto Scaling</li>
+              <li>環境変数: PORT · DATABASE_URL · CORS_ORIGINS · WEB_BASE_URL（空=同一オリジン）</li>
+            </ul>
+          </section>
+
+          <figure className={`${styles.diagram} ${styles.diagramAws}`} aria-label="ECS Docker flow">
+            <figcaption>ECS × Docker</figcaption>
+            <pre>{ecsDockerArchitecture}</pre>
+          </figure>
+
+          <p className={styles.scrollHint}>↓ 画面ごとの手順（9. AWS デプロイ＝ECS×Docker 含む）</p>
 
           <ol className={styles.steps}>
             {steps.map((step) => (
