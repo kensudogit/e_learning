@@ -1,4 +1,4 @@
-# ルートビルド用（API Dockerfile）
+# ルートビルド用（API + Next.js static export）
 .git
 .github
 .env
@@ -6,12 +6,16 @@
 **/.venv
 **/node_modules
 **/.next
+**/out
 **/__pycache__
 **/*.pyc
 **/tests
-apps/web
+apps/web/.env*
+apps/web/Dockerfile*
+apps/web/README.md
 infra
 scripts
 sql
 README.md
 docker-compose.yml
+RAILWAY.md
