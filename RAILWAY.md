@@ -1,19 +1,25 @@
-# Railway 公開設定メモ
+# Railway「Application not found / train has not arrived」対処
 
-## 今回の問題
-`/` が `WEB_BASE_URL=http://127.0.0.1:3000` へリダイレクトしていたため、
-Public URL を開いてもローカルへ飛ばされていました。
+## 意味
+エッジがサービスに到達できない状態です（アプリ 404 とは別）。
 
-## 修正後
-- `/` は **公開オリジン上のポータル**（127.0.0.1 には飛ばさない）
-- `RAILWAY_PUBLIC_DOMAIN` があればそれを優先
-- uvicorn は `0.0.0.0:$PORT` で待受
+よくある原因:
+1. 最新デプロイが起動失敗（DB 接続待ちでヘルスチェック落ちなど）
+2. Public Domain の Target Port 不一致
+3. ドメイン未紐付け / デプロイ未成功
 
-## Railway Networking
-画面の Target Port はログの待受ポートと一致させてください（現在は **5000**）。
+## コード側の対策（本リポジトリ）
+- DB 初期化にタイムアウト（起動をブロックしない）
+- `/health` は DB 不要で即応答
+- railway.toml の healthcheck を外し、失敗デプロイで落ちにくくする
+- `0.0.0.0:$PORT` 待受
 
-Variables 推奨:
-- `WEB_BASE_URL=` （空）
-- `CORS_ORIGINS=*`
-- `APP_ENV=production`
-- `PORT` は手動設定しない（Railway 自動注入）
+## ダッシュボードで実施
+1. **Deployments** で最新が Success か確認。失敗なら Redeploy
+2. **Settings → Networking**
+   - ドメインがあること
+   - **Target Port = 5000**（またはログの PORT と一致）
+3. Variables
+   - `WEB_BASE_URL` を空に
+   - `DATABASE_URL` は Postgres プラグインの参照を使う
+4. ドメインが消えていたら **Generate Domain** を再実行

@@ -1,5 +1,4 @@
-# eラーニング（API + 公開ポータル）
-# Railway: 必ず 0.0.0.0:$PORT で待受。PORT をイメージに焼き込まない。
+# eラーニング API（公開ポータル付き）
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -19,7 +18,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY apps/api/ .
 
+# Verify import at build time
+RUN python -c "from app.main import app; print('import-ok', app.title)"
+
+# Railway Target Port が 5000 の場合に合わせる（実際の待受は $PORT）
 EXPOSE 5000
 
-# Railway が注入する PORT（画面上の Target Port と一致させる）
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-5000}"]
+CMD ["sh", "-c", "echo \"[elearning] binding 0.0.0.0:${PORT:-5000}\" && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-5000}"]

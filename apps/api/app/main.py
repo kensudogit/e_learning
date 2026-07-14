@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
+import asyncio
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,13 +22,19 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "web_static"
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # Never block process start on DB — Railway needs /health immediately.
     try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        async with asyncio.timeout(8):
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            print("[adinfra] database schema ready", flush=True)
     except Exception as exc:  # noqa: BLE001
-        print(f"[warn] database init skipped: {exc}")
+        print(f"[warn] database init skipped: {exc!r}", flush=True)
     yield
-    await engine.dispose()
+    try:
+        await engine.dispose()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _public_portal_html(settings) -> str:

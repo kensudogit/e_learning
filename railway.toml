@@ -1,9 +1,9 @@
-# Railway / 類似 PaaS 向け（ルート Dockerfile を明示）
+# Railway / 類似 PaaS 向け
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-healthcheckPath = "/health"
-healthcheckTimeout = 30
+# Healthcheck 失敗でデプロイ全体が落ちると "Application not found" になるため無効化。
+# アプリ側 /health は提供する。
 restartPolicyType = "ON_FAILURE"
