@@ -21,7 +21,6 @@ def _require_ops(user: User) -> None:
 async def list_materials(
     course_id: UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
 ) -> list[Material]:
     stmt = select(Material).order_by(Material.created_at.desc())
     if course_id:
@@ -52,7 +51,6 @@ async def list_media(
     course_id: UUID | None = Query(None),
     live_only: bool = Query(False),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
 ) -> list[MediaContent]:
     stmt = select(MediaContent).order_by(MediaContent.created_at.desc())
     if course_id:

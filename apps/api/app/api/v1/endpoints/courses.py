@@ -2,20 +2,36 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models.domain import Course, CourseStatus, Lesson, ServiceType, User, UserRole
 from app.schemas import CourseCreate, CourseRead, CourseUpdate, LessonCreate, LessonRead
 
 router = APIRouter(prefix="/courses", tags=["courses"])
+_optional_bearer = HTTPBearer(auto_error=False)
 
 
 def _require_ops(user: User) -> None:
     if user.role not in {UserRole.ADMIN, UserRole.INSTRUCTOR}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="商品管理権限がありません")
+
+
+async def _optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    if credentials is None:
+        return None
+    payload = decode_access_token(credentials.credentials)
+    if payload is None or "sub" not in payload:
+        return None
+    result = await db.execute(select(User).where(User.id == UUID(payload["sub"])))
+    return result.scalar_one_or_none()
 
 
 @router.get("", response_model=list[CourseRead])
@@ -24,11 +40,14 @@ async def list_courses(
     audience: str | None = Query(None),
     status_filter: CourseStatus | None = Query(None, alias="status"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User | None = Depends(_optional_user),
 ) -> list[Course]:
+    """未ログインでも公開コースを一覧表示。ログイン時は下書きも含む（管理者/講師）。"""
     stmt = select(Course).order_by(Course.created_at.desc())
     if status_filter:
         stmt = stmt.where(Course.status == status_filter)
+    elif current_user is None or current_user.role not in {UserRole.ADMIN, UserRole.INSTRUCTOR}:
+        stmt = stmt.where(Course.status == CourseStatus.PUBLISHED)
     result = await db.execute(stmt)
     courses = list(result.scalars().all())
     if service_type:
@@ -64,11 +83,15 @@ async def create_course(
 async def get_course(
     course_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User | None = Depends(_optional_user),
 ) -> Course:
     result = await db.execute(select(Course).where(Course.id == course_id))
     course = result.scalar_one_or_none()
     if course is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="コースが見つかりません")
+    if course.status != CourseStatus.PUBLISHED and (
+        current_user is None or current_user.role not in {UserRole.ADMIN, UserRole.INSTRUCTOR}
+    ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="コースが見つかりません")
     return course
 
@@ -105,7 +128,6 @@ async def update_course(
 async def list_lessons(
     course_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
 ) -> list[Lesson]:
     result = await db.execute(
         select(Lesson).where(Lesson.course_id == course_id).order_by(Lesson.sort_order.asc())

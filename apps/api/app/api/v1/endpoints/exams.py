@@ -34,7 +34,6 @@ router = APIRouter(tags=["exams"])
 async def list_exams(
     course_id: UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
 ) -> list[Exam]:
     stmt = select(Exam).order_by(Exam.created_at.desc())
     if course_id:

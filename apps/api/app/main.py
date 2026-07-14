@@ -10,6 +10,7 @@ from app.db.session import Base, engine
 from app.schemas import HealthResponse
 
 # モデルを Base.metadata に登録
+from app.models import core_entities as _core  # noqa: F401
 from app.models import domain as _domain  # noqa: F401
 from app.models import platform as _platform  # noqa: F401
 
