@@ -1,4 +1,5 @@
 from functools import lru_cache
+import os
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -19,6 +20,19 @@ def to_asyncpg_url(url: str) -> str:
     return url
 
 
+def _is_loopback_url(url: str) -> bool:
+    lowered = url.lower()
+    return any(
+        host in lowered
+        for host in (
+            "://127.0.0.1",
+            "://localhost",
+            "://0.0.0.0",
+            "://[::1]",
+        )
+    )
+
+
 class Settings(BaseSettings):
     """アプリケーション設定（環境変数 / .env から読み込み）."""
 
@@ -29,26 +43,20 @@ class Settings(BaseSettings):
     debug: bool = True
     api_v1_prefix: str = "/api/v1"
 
-    # Database (local: PostgreSQL / prod: Amazon RDS)
-    # PaaS は DATABASE_URL=postgresql://... を渡すことが多い
     database_url: str = "postgresql+asyncpg://elearning:elearning@localhost:5433/elearning"
-
-    # Redis
     redis_url: str = "redis://localhost:6379/0"
 
-    # CORS
-    cors_origins: str = "http://localhost:3000"
+    # 本番は CORS_ORIGINS に公開 URL を設定。未設定時は *（Railway 公開用）
+    cors_origins: str = "*"
 
-    # Frontend (開発時のサービス画面)
-    web_base_url: str = "http://127.0.0.1:3000"
+    # 空 / loopback の場合は Railway 公開ドメイン or 同一オリジンを使う
+    web_base_url: str = ""
 
-    # AWS Cognito (本番・ステージング用)
     cognito_region: str = "ap-northeast-1"
     cognito_user_pool_id: str = ""
     cognito_app_client_id: str = ""
     cognito_issuer: str = ""
 
-    # JWT (ローカル開発用フォールバック)
     jwt_secret_key: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
@@ -62,7 +70,25 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
+        if self.cors_origins.strip() == "*":
+            return ["*"]
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def public_web_base_url(self) -> str:
+        """Never return 127.0.0.1/localhost for public redirects."""
+        raw = (self.web_base_url or "").strip().rstrip("/")
+        if raw and not _is_loopback_url(raw):
+            return raw
+
+        railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
+        if railway_domain:
+            if railway_domain.startswith("http://") or railway_domain.startswith("https://"):
+                return railway_domain.rstrip("/")
+            return f"https://{railway_domain}"
+
+        # Same-origin portal (this public service)
+        return ""
 
 
 @lru_cache
