@@ -1,6 +1,22 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def to_asyncpg_url(url: str) -> str:
+    """Railway 等の postgresql:// / postgres:// を asyncpg 用に正規化."""
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url.removeprefix("postgres://")
+    replacements = (
+        ("postgresql+psycopg2://", "postgresql+asyncpg://"),
+        ("postgresql+psycopg://", "postgresql+asyncpg://"),
+        ("postgresql://", "postgresql+asyncpg://"),
+    )
+    for src, dst in replacements:
+        if url.startswith(src):
+            return dst + url.removeprefix(src)
+    return url
 
 
 class Settings(BaseSettings):
@@ -14,6 +30,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     # Database (local: PostgreSQL / prod: Amazon RDS)
+    # PaaS は DATABASE_URL=postgresql://... を渡すことが多い
     database_url: str = "postgresql+asyncpg://elearning:elearning@localhost:5433/elearning"
 
     # Redis
@@ -35,6 +52,13 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: object) -> object:
+        if isinstance(value, str) and value:
+            return to_asyncpg_url(value)
+        return value
 
     @property
     def cors_origin_list(self) -> list[str]:
