@@ -106,6 +106,60 @@ const awsDeploySteps = [
   "手順の詳細は「9. AWS デプロイ」内の構築・運用リストと README を参照",
 ] as const;
 
+/** 単一 FastAPI → 受講/添削/管理/バッチ 分割の目標構成 */
+const microservicesArchitecture = `  [現状 Phase0–1]
+   単一 ECS Service（FastAPI + web_static）
+   /api/v1/* を1プロセスで処理 · 共有 DB
+              │  段階分割（Strangler Fig）
+              ▼
+  [目標 Phase3]
+       CloudFront / ALB
+            │ パスベースルーティング
+   ┌────────┼────────┬────────┐
+   ▼        ▼        ▼        ▼
+ 受講API  添削API  管理API   バッチ
+ courses  assignments accounts EventBridge
+ contracts learning  analytics / SQS worker
+ shipping  …         faq
+   │        │        │        │
+   └────────┴──┬─────┴────────┘
+               ▼
+     Cognito JWT（共通検証）
+     Aurora（初期は共有スキーマ
+             → 境界ごと DB/スキーマ分離）
+     SQS / SES / S3（非同期・教材）`;
+
+const microservicesSteps = [
+  "前提: Phase1 で単一 ECS + RDS が安定稼働していること（分割は Phase3）",
+  "0) 境界定義: 受講（courses/contracts/learning/shipping）· 添削（assignments）· 管理（accounts/analytics/faq）· バッチ（督促・集計・SQS）",
+  "1) モジュール化: apps/api 内で router/domain を境界ごとに切り、同一リポでビルド分離可能にする",
+  "2) 契約（API）固定: 公開パス /api/v1/... と OpenAPI をサービス契約として版管理",
+  "3) 認証共通化: Cognito JWT 検証を共有ライブラリ化（各サービスで同じ issuer/audience）",
+  "4) データ: まずは共有 Aurora + スキーマ/テーブル所有権を明示 → 後から DB 分離または Read モデル",
+  "5) 同期→非同期: 添削割当・発送指示・督促は SQS（または EventBridge）へ。同期 HTTP 連鎖を避ける",
+  "6) ECR/ECS: サービスごとリポジトリ・タスク定義・Service・ターゲットグループを作成",
+  "7) ALB: パスルールで振り分け（例: /api/v1/assignments/* → 添削、他受講、/api/v1/accounts|/analytics → 管理）",
+  "8) バッチ: ALB なし Fargate をスケジュール/SQS トリガ。冪等性と DLQ を必須化",
+  "9) 観測: サービス別 CloudWatch Logs · トレース（X-Ray 等）· 相関 ID をリクエストに付与",
+  "10) 移行: Strangler — パス単位で新サービスへ切替、旧モノリスはフォールバック残置→最終撤去",
+  "11) フロント: 同一オリジン（CloudFront）を維持し、クライアントのベース URL 変更を最小化",
+] as const;
+
+const microservicesConcerns = [
+  "分散トランザクション: 申込→請求→発送など跨ぎ処理は2相コミット不可。Saga/アウトボックス + 補償を設計",
+  "共有 DB の罠: テーブルを複数サービスから直接更新すると結合が残る。所有境界を破らない",
+  "N+1 / チャットリネス: 画面1操作で多サービス呼び出しが増える。BFF または集約 API・キャッシュを検討",
+  "一貫性: 最終的整合性を許容する UX（「処理中」表示・再取得）が必要",
+  "認証・認可: ロール（受講者/添削/管理/法人）を各サービスで再実装しない。クレームとポリシーを共通化",
+  "スキーマ進化: 後方互換の API 版、破壊的変更は新パスまたはバージョンヘッダ",
+  "運用コスト: サービス数×デプロイ・監視・障害面が増える。分割理由（スケール・チーム・障害隔離）が薄いなら延期",
+  "ローカル開発: docker-compose で全サービス起動が重荷。モック/契約テストで単体開発可能にする",
+  "障害伝播: タイムアウト・サーキットブレーカ・リトライ（冪等時のみ）を標準装備",
+  "個人情報: 退会・削除が複数ストアに跨る。削除オーケストレーションと監査ログを先に決める",
+  "バッチとオンラインの競合: 集計ジョブがオンライン更新と衝突しないロック/読み取り分離",
+  "コスト: Fargate 常時複数サービス + NAT/ALB ルール増。低負荷期はモノリス継続も選択肢",
+] as const;
+
 const recommendedFlow = [
   "ログイン（デモ: learner@example.com / password123）",
   "「コース」で講座一覧を確認し、気になるコースを開く",
@@ -216,6 +270,16 @@ const steps = [
       ...ecsBuildSteps,
       "—— 運用（Operate）——",
       ...ecsOpsSteps,
+    ],
+  },
+  {
+    title: "10. マイクロサービス化",
+    body: "単一 FastAPI イメージから受講 / 添削 / 管理 / バッチへ段階分割する手順です。構成は上図「Microservices」、Phase3 想定。",
+    items: [
+      "—— 分割手順 ——",
+      ...microservicesSteps,
+      "—— 留意・懸念点 ——",
+      ...microservicesConcerns,
     ],
   },
 ] as const;
@@ -463,7 +527,28 @@ export function UsageGuidePanel({ open, onClose }: Props) {
             <pre>{ecsDockerArchitecture}</pre>
           </figure>
 
-          <p className={styles.scrollHint}>↓ 画面ごとの手順（9. AWS デプロイ＝ECS×Docker 含む）</p>
+          <section className={styles.featured} aria-label="マイクロサービス化">
+            <div className={styles.featuredHead}>
+              <span className={styles.featuredBadge}>Phase 3</span>
+              <strong>マイクロサービス化</strong>
+            </div>
+            <p>
+              現状は単一 FastAPI + 静的 Web です。負荷・チーム・障害隔離の必要が出たら、受講 / 添削 / 管理 / バッチへ
+              Strangler Fig 方式で分割します。ALB パス振り分けと SQS 非同期、共有 JWT を軸にします。
+            </p>
+            <ul className={styles.items}>
+              <li>手順: 境界定義 → モジュール化 → ECR/ECS 分割 → ALB ルール → 旧モノリス撤去</li>
+              <li>懸念: 分散トランザクション · 共有DB · チャットリネス · 運用コスト増</li>
+              <li>詳細は手順「10. マイクロサービス化」を参照</li>
+            </ul>
+          </section>
+
+          <figure className={`${styles.diagram} ${styles.diagramAws}`} aria-label="Microservices">
+            <figcaption>Microservices（目標）</figcaption>
+            <pre>{microservicesArchitecture}</pre>
+          </figure>
+
+          <p className={styles.scrollHint}>↓ 画面ごとの手順（9. ECS×Docker / 10. マイクロサービス化 含む）</p>
 
           <ol className={styles.steps}>
             {steps.map((step) => (
