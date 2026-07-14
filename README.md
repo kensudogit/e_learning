@@ -193,9 +193,137 @@ docker compose up --build
 - **VPC** — Public / Private subnet
 - **RDS** — PostgreSQL
 - **Cognito** — ユーザープール / アプリクライアント
-- **ECS + CloudFront** — API / Web 配信
+- **ECS + ALB + CloudFront** — API / Web 配信
 
 > Terraform は骨格のため、本番適用前にシークレット・証明書・ドメイン・セキュリティグループ等の拡充が必要です。
+
+## AWS デプロイ手順
+
+画面の「利用手順」にも同内容の要約があります。以下は運用向けの詳細です。
+
+### 前提
+
+| 項目 | 内容 |
+|------|------|
+| AWS アカウント | `ap-northeast-1` 推奨 |
+| ツール | AWS CLI v2、Terraform ≥ 1.5、Docker Desktop |
+| 権限 | ECR / ECS / RDS / Cognito / VPC / IAM / CloudFront |
+| 認証 | `aws configure` または SSO |
+
+### 全体像
+
+```
+Internet
+   │
+   ▼
+CloudFront （Web / 静的）
+   │
+   ▼
+ALB
+   │
+   ▼
+ECS Fargate （ルート Dockerfile = FastAPI + Next 静的 UI）
+   │
+   ├─► RDS PostgreSQL（Private）
+   └─► Cognito（認証・本番）
+```
+
+### Step 1 — インフラ作成（Terraform）
+
+```powershell
+cd infra\terraform
+terraform init
+terraform plan -var="environment=dev" -var="aws_region=ap-northeast-1"
+terraform apply -var="environment=dev" -var="aws_region=ap-northeast-1"
+```
+
+主な出力:
+
+- `rds_endpoint` … DB 接続先
+- `cognito_user_pool_id` / `cognito_client_id` … 認証設定
+- ECS クラスタ名 / CloudFront ドメイン（モジュール出力）
+
+### Step 2 — コンテナイメージを ECR へ
+
+ルート `Dockerfile` は **API + 静的 Web（サービス画面）** を 1 イメージに含めます。
+
+```powershell
+# リポジトリ作成（初回）
+aws ecr create-repository --repository-name elearning-app --region ap-northeast-1
+
+# ログイン
+aws ecr get-login-password --region ap-northeast-1 `
+  | docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.ap-northeast-1.amazonaws.com
+
+# ビルド & プッシュ
+docker build -t elearning-app .
+docker tag elearning-app:latest <ACCOUNT_ID>.dkr.ecr.ap-northeast-1.amazonaws.com/elearning-app:latest
+docker push <ACCOUNT_ID>.dkr.ecr.ap-northeast-1.amazonaws.com/elearning-app:latest
+```
+
+### Step 3 — ECS タスク定義・サービス
+
+タスク定義で次を設定します（Secrets Manager / SSM 推奨）。
+
+| 環境変数 | 例 |
+|----------|-----|
+| `PORT` | `8080`（ALB ターゲットと一致） |
+| `APP_ENV` | `production` |
+| `DATABASE_URL` | `postgresql+asyncpg://USER:PASS@RDS_ENDPOINT:5432/elearning` |
+| `CORS_ORIGINS` | `https://<CloudFront ドメイン>` または `*` |
+| `WEB_BASE_URL` | 空（同一オリジン配信） |
+| `COGNITO_REGION` | `ap-northeast-1` |
+| `COGNITO_USER_POOL_ID` | Terraform 出力 |
+| `COGNITO_APP_CLIENT_ID` | Terraform 出力 |
+| `COGNITO_ISSUER` | `https://cognito-idp.ap-northeast-1.amazonaws.com/<POOL_ID>` |
+
+起動コマンド例（イメージ CMD をそのまま利用可）:
+
+```text
+uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
+```
+
+ALB ヘルスチェックパス: `/health`
+
+### Step 4 — 配信確認
+
+1. ALB DNS で `GET /health` → `{"status":"ok",...}`
+2. `GET /` → サービス画面（学びの基盤）
+3. `GET /docs` → OpenAPI
+4. CloudFront オリジンを ALB に向け、HTTPS で公開
+
+### Step 5 — DB 初期化・シード（初回）
+
+ECS Exec またはワンショットタスクで:
+
+```bash
+python -m app.scripts.seed
+```
+
+デモログイン: `learner@example.com` / `password123`
+
+### Step 6 — Cognito 切替（本番認証）
+
+1. Terraform の Cognito ユーザープールを利用
+2. API の `COGNITO_*` を設定
+3. フロントのログインを Cognito Hosted UI / SDK 連携に段階移行（Phase 2）
+
+### 注意事項
+
+- Terraform 骨格の CloudFront origin は placeholder のため、適用後に **実 ALB / S3 オリジンへ変更**してください
+- RDS は Private subnet 想定。ECS タスクの SG から 5432 を許可
+- `DATABASE_URL` に `postgres://` を渡してもアプリ側で asyncpg 用に正規化されます
+- 証明書（ACM）・独自ドメインは ALB / CloudFront に別途設定
+
+### 簡易手順チェックリスト
+
+- [ ] `terraform apply` 成功
+- [ ] ECR に最新イメージ push
+- [ ] ECS サービスが Running（desired = running）
+- [ ] `/health` 200
+- [ ] `/` でサービス画面表示
+- [ ] RDS 接続・シード完了
+- [ ] Cognito 環境変数設定（本番時）
 
 ## 開発フェーズ方針
 
@@ -203,4 +331,3 @@ docker compose up --build
 2. **Phase 1** — 受講申込・コース閲覧の本番相当フロー
 3. **Phase 2** — Cognito 連携・添削ワークフロー
 4. **Phase 3** — レガシー基幹システムとの段階連携・切替
-"# e_learning" 

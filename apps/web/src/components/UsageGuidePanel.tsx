@@ -6,10 +6,10 @@ import styles from "./UsageGuidePanel.module.css";
 const techStack = [
   "Next.js · React",
   "Python · FastAPI",
-  "PostgreSQL",
-  "JWT Auth",
-  "Docker · Railway",
-  "KPI · Analytics",
+  "PostgreSQL · RDS",
+  "JWT · Cognito",
+  "Docker · ECS",
+  "CloudFront · Terraform",
 ] as const;
 
 const serviceFlow = `ログイン
@@ -47,6 +47,7 @@ const localTips = [
   "DB: docker compose の Postgres はホスト 5433（5432 衝突回避）",
   "DATABASE_URL は postgresql:// でも可 → アプリが asyncpg に自動変換",
   "シード: apps/api で python -m app.scripts.seed",
+  "Railway: ルート Dockerfile（API+静的Web）· Target Port はログの PORT と一致",
 ] as const;
 
 const steps = [
@@ -121,9 +122,23 @@ const steps = [
     ],
   },
   {
-    title: "8. ローカル / デプロイ",
-    body: "開発起動と PaaS 接続の注意点です。",
+    title: "8. ローカル / Railway",
+    body: "開発起動と PaaS（Railway）接続の注意点です。",
     items: [...localTips],
+  },
+  {
+    title: "9. AWS デプロイ",
+    body: "本番相当は VPC / RDS / Cognito / ECS / CloudFront（Terraform 骨格）で構築します。",
+    items: [
+      "前提: AWS CLI ログイン、Terraform ≥ 1.5、Docker、ECR 権限",
+      "1) infra/terraform で terraform init → plan → apply（VPC・RDS・Cognito・ECS）",
+      "2) ECR にルート Dockerfile のイメージを push（API + 静的 Web）",
+      "3) ECS タスクに DATABASE_URL / CORS_ORIGINS / COGNITO_* / PORT を設定",
+      "4) ALB ターゲットを ECS サービスに接続し、/health で疎通確認",
+      "5) CloudFront オリジンを ALB（または S3 の静的配信）に切替",
+      "6) Cognito ユーザープール作成後、COGNITO_* を API に反映",
+      "詳細手順はリポジトリ README の「AWS デプロイ手順」を参照",
+    ],
   },
 ] as const;
 
