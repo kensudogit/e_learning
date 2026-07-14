@@ -1,5 +1,11 @@
 # eラーニング統合プラットフォーム — インフラ骨格
-# 対象: RDS / Cognito / CloudFront / ECS / ALB / VPC
+# 目標構成:
+#   Internet → Route53 → CloudFront → (S3 | ALB → ECS Fargate)
+#   ECS: 受講API / 添削API / 管理API / バッチ
+#   Cognito → Aurora PostgreSQL(RDS)
+#   CloudWatch / WAF / SES / SQS
+#
+# 対象モジュール（現状骨格）: VPC / RDS / Cognito / ECS+CloudFront
 
 terraform {
   required_version = ">= 1.5.0"

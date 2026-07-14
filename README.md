@@ -186,20 +186,50 @@ docker compose up --build
 | GET | `/api/v1/assignments/pending` | 添削待ち一覧 |
 | POST | `/api/v1/assignments/{id}/feedback` | 添削フィードバック |
 
-## AWS 構成（段階導入）
+## AWS 構成（目標アーキテクチャ）
 
-`infra/terraform` に以下の骨格を配置しています。
+```
+                     Internet
+                         │
+                Route53（DNS）
+                         │
+                  CloudFront
+              （高速コンテンツ配信）
+          ┌──────────┴──────────┐
+          │                     │
+     S3（教材・画像）        ALB
+                                │
+                       ECS(Fargate)
+        ┌──────────┬──────────┬──────────┐
+        │          │          │          │
+     受講API    添削API    管理API    バッチ
+        │
+    Cognito（認証）
+        │
+ Aurora PostgreSQL(RDS)
+        │
+  CloudWatch・WAF・SES・SQS
+```
 
-- **VPC** — Public / Private subnet
-- **RDS** — PostgreSQL
-- **Cognito** — ユーザープール / アプリクライアント
-- **ECS + ALB + CloudFront** — API / Web 配信
+| レイヤ | AWS サービス | 役割 |
+|--------|--------------|------|
+| DNS | Route 53 | 独自ドメイン・ヘルスチェック |
+| CDN | CloudFront | Web / API エッジ配信、HTTPS |
+| 静的資産 | S3 | 教材ファイル・画像・フロント静的配信 |
+| 入口 | ALB | ECS へのロードバランス、パスルーティング |
+| アプリ | ECS Fargate | 受講 API / 添削 API / 管理 API / バッチ |
+| 認証 | Cognito | ユーザープール・アプリクライアント |
+| DB | Aurora PostgreSQL (RDS) | 業務データ（Private subnet） |
+| 横断 | CloudWatch / WAF / SES / SQS | 監視・防御・メール・非同期キュー |
 
-> Terraform は骨格のため、本番適用前にシークレット・証明書・ドメイン・セキュリティグループ等の拡充が必要です。
+`infra/terraform` に VPC / RDS / Cognito / ECS / CloudFront の骨格があります。  
+Route53・S3・WAF・SES・SQS・Aurora クラスタ・API 分割は段階導入で拡充します。
+
+> 本番適用前にシークレット、ACM 証明書、セキュリティグループ、オリジン実体の設定が必要です。
 
 ## AWS デプロイ手順
 
-画面の「利用手順」にも同内容の要約があります。以下は運用向けの詳細です。
+画面の「利用手順」→「9. AWS デプロイ」にも要約があります。
 
 ### 前提
 
@@ -207,127 +237,114 @@ docker compose up --build
 |------|------|
 | AWS アカウント | `ap-northeast-1` 推奨 |
 | ツール | AWS CLI v2、Terraform ≥ 1.5、Docker Desktop |
-| 権限 | ECR / ECS / RDS / Cognito / VPC / IAM / CloudFront |
+| 権限 | Route53 / CloudFront / S3 / ALB / ECR / ECS / RDS(Aurora) / Cognito / WAF / SES / SQS / IAM |
 | 認証 | `aws configure` または SSO |
 
-### 全体像
-
-```
-Internet
-   │
-   ▼
-CloudFront （Web / 静的）
-   │
-   ▼
-ALB
-   │
-   ▼
-ECS Fargate （ルート Dockerfile = FastAPI + Next 静的 UI）
-   │
-   ├─► RDS PostgreSQL（Private）
-   └─► Cognito（認証・本番）
-```
-
-### Step 1 — インフラ作成（Terraform）
+### Step 1 — 基盤（Terraform）
 
 ```powershell
 cd infra\terraform
 terraform init
-terraform plan -var="environment=dev" -var="aws_region=ap-northeast-1"
-terraform apply -var="environment=dev" -var="aws_region=ap-northeast-1"
+terraform plan  -var="environment=prod" -var="aws_region=ap-northeast-1"
+terraform apply -var="environment=prod" -var="aws_region=ap-northeast-1"
 ```
 
-主な出力:
+作成される骨格: VPC、RDS(PostgreSQL)、Cognito、ECS クラスタ、CloudFront（placeholder origin）
 
-- `rds_endpoint` … DB 接続先
-- `cognito_user_pool_id` / `cognito_client_id` … 認証設定
-- ECS クラスタ名 / CloudFront ドメイン（モジュール出力）
+続けて手動またはモジュール拡張で:
 
-### Step 2 — コンテナイメージを ECR へ
+1. **Route 53** … ホストゾーン / CloudFront・ALB への Alias
+2. **S3** … 教材・画像バケット（OAC で CloudFront のみ公開）
+3. **WAF** … CloudFront / ALB に Web ACL 関連付け
+4. **SES** … ドメイン検証、送信権限
+5. **SQS** … 添削通知・発送・バッチ用キュー
+6. **Aurora** … 必要に応じ RDS 単一インスタンスから Aurora クラスタへ移行
 
-ルート `Dockerfile` は **API + 静的 Web（サービス画面）** を 1 イメージに含めます。
+### Step 2 — コンテナイメージ（ECR → ECS）
+
+ルート `Dockerfile` は API + サービス画面（静的）を含みます。マイクロサービス分割時は受講/添削/管理/バッチでリポジトリを分けます。
 
 ```powershell
-# リポジトリ作成（初回）
-aws ecr create-repository --repository-name elearning-app --region ap-northeast-1
-
-# ログイン
+aws ecr create-repository --repository-name elearning-enrollment --region ap-northeast-1
 aws ecr get-login-password --region ap-northeast-1 `
   | docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.ap-northeast-1.amazonaws.com
 
-# ビルド & プッシュ
 docker build -t elearning-app .
-docker tag elearning-app:latest <ACCOUNT_ID>.dkr.ecr.ap-northeast-1.amazonaws.com/elearning-app:latest
-docker push <ACCOUNT_ID>.dkr.ecr.ap-northeast-1.amazonaws.com/elearning-app:latest
+docker tag elearning-app:latest <ACCOUNT_ID>.dkr.ecr.ap-northeast-1.amazonaws.com/elearning-enrollment:latest
+docker push <ACCOUNT_ID>.dkr.ecr.ap-northeast-1.amazonaws.com/elearning-enrollment:latest
 ```
 
-### Step 3 — ECS タスク定義・サービス
+### Step 3 — ECS サービス（受講 / 添削 / 管理 / バッチ）
 
-タスク定義で次を設定します（Secrets Manager / SSM 推奨）。
+| サービス | 役割 | ALB パス例 |
+|----------|------|------------|
+| 受講 API | コース・申込・学習・発送 | `/api/v1/courses`, `/enrollments`, `/learning`, … |
+| 添削 API | 課題提出・返却 | `/api/v1/assignments/*` |
+| 管理 API | アカウント・KPI・FAQ | `/api/v1/accounts`, `/analytics`, … |
+| バッチ | 督促・集計・SQS ワーカー | スケジュール / SQS トリガ（ALB なし可） |
 
-| 環境変数 | 例 |
-|----------|-----|
-| `PORT` | `8080`（ALB ターゲットと一致） |
-| `APP_ENV` | `production` |
-| `DATABASE_URL` | `postgresql+asyncpg://USER:PASS@RDS_ENDPOINT:5432/elearning` |
-| `CORS_ORIGINS` | `https://<CloudFront ドメイン>` または `*` |
-| `WEB_BASE_URL` | 空（同一オリジン配信） |
-| `COGNITO_REGION` | `ap-northeast-1` |
-| `COGNITO_USER_POOL_ID` | Terraform 出力 |
-| `COGNITO_APP_CLIENT_ID` | Terraform 出力 |
-| `COGNITO_ISSUER` | `https://cognito-idp.ap-northeast-1.amazonaws.com/<POOL_ID>` |
+共通タスク環境変数（Secrets Manager / SSM 推奨）:
 
-起動コマンド例（イメージ CMD をそのまま利用可）:
+| 変数 | 内容 |
+|------|------|
+| `PORT` | ALB ターゲットと一致（例: `8080`） |
+| `DATABASE_URL` | Aurora/RDS エンドポイント |
+| `CORS_ORIGINS` | CloudFront ドメイン |
+| `COGNITO_*` | ユーザープール設定 |
+| `WEB_BASE_URL` | 空（同一オリジン）または CloudFront URL |
+| `S3_BUCKET` / `SQS_*` / `SES_*` | 教材・非同期・メール（導入後） |
 
-```text
-uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
-```
+起動: `uvicorn app.main:app --host 0.0.0.0 --port ${PORT}`  
+ヘルスチェック: `/health`
 
-ALB ヘルスチェックパス: `/health`
+### Step 4 — CloudFront + S3 + ALB
 
-### Step 4 — 配信確認
+1. **S3** に教材・画像を配置（非公開 + CloudFront OAC）
+2. CloudFront ビヘイビア例:
+   - `/assets/*`, `/materials/*` → S3
+   - その他 → ALB（API + サービス画面）
+3. **Route 53** で `app.example.com` → CloudFront
+4. **WAF** を CloudFront に関連付け（ボット・SQLi 等）
 
-1. ALB DNS で `GET /health` → `{"status":"ok",...}`
-2. `GET /` → サービス画面（学びの基盤）
-3. `GET /docs` → OpenAPI
-4. CloudFront オリジンを ALB に向け、HTTPS で公開
+### Step 5 — 認証・メール・非同期
 
-### Step 5 — DB 初期化・シード（初回）
+1. **Cognito** … Hosted UI / JWT 検証を API に接続
+2. **SES** … 申込完了・添削返却・督促メール
+3. **SQS** … 添削割当、発送指示、バッチ連携
+4. **CloudWatch** … ECS/ALB/RDS ログ・アラーム
 
-ECS Exec またはワンショットタスクで:
+### Step 6 — 初期データ
 
 ```bash
+# ECS Exec またはワンショットタスク
 python -m app.scripts.seed
 ```
 
-デモログイン: `learner@example.com` / `password123`
+デモ: `learner@example.com` / `password123`
 
-### Step 6 — Cognito 切替（本番認証）
+### 確認チェックリスト
 
-1. Terraform の Cognito ユーザープールを利用
-2. API の `COGNITO_*` を設定
-3. フロントのログインを Cognito Hosted UI / SDK 連携に段階移行（Phase 2）
+- [ ] Route 53 → CloudFront 解決
+- [ ] CloudFront → S3（静的）/ ALB（動的）
+- [ ] ALB → ECS 各サービス（`/health` 200）
+- [ ] Cognito ログイン・トークン検証
+- [ ] Aurora/RDS 接続・シード
+- [ ] WAF / CloudWatch アラーム有効
+- [ ] SES サンドボックス解除（本番送信時）
+- [ ] SQS コンシューマ（バッチ）稼働
 
-### 注意事項
+### 現状コードとの対応
 
-- Terraform 骨格の CloudFront origin は placeholder のため、適用後に **実 ALB / S3 オリジンへ変更**してください
-- RDS は Private subnet 想定。ECS タスクの SG から 5432 を許可
-- `DATABASE_URL` に `postgres://` を渡してもアプリ側で asyncpg 用に正規化されます
-- 証明書（ACM）・独自ドメインは ALB / CloudFront に別途設定
-
-### 簡易手順チェックリスト
-
-- [ ] `terraform apply` 成功
-- [ ] ECR に最新イメージ push
-- [ ] ECS サービスが Running（desired = running）
-- [ ] `/health` 200
-- [ ] `/` でサービス画面表示
-- [ ] RDS 接続・シード完了
-- [ ] Cognito 環境変数設定（本番時）
+| 目標構成 | 現状 |
+|----------|------|
+| ECS 複数サービス | 単一 FastAPI イメージ（パスで論理分割可能） |
+| Aurora | Terraform は RDS PostgreSQL 骨格（Aurora へ拡張可） |
+| S3 / SES / SQS / WAF / Route53 | ドキュメント上の目標。モジュール追加で導入 |
+| Cognito / CloudFront / ECS / VPC | `infra/terraform` 骨格あり |
 
 ## 開発フェーズ方針
 
 1. **Phase 0（現在）** — ローカル開発基盤・ドメイン骨格
-2. **Phase 1** — 受講申込・コース閲覧の本番相当フロー
-3. **Phase 2** — Cognito 連携・添削ワークフロー
-4. **Phase 3** — レガシー基幹システムとの段階連携・切替
+2. **Phase 1** — 受講申込・コース閲覧の本番相当フロー（単一 ECS + RDS）
+3. **Phase 2** — Cognito・添削・S3 教材・SES
+4. **Phase 3** — API 分割・SQS バッチ・Aurora・WAF・Route53 本格運用

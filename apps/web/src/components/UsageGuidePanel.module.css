@@ -250,6 +250,13 @@
   white-space: pre;
 }
 
+.diagramAws pre {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: #a5f3fc;
+  background: #0b1220;
+}
+
 .scrollHint {
   margin: 0 0 0.75rem;
   padding: 0.5rem 0.65rem;

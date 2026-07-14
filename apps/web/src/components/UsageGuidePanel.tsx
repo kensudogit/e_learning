@@ -26,6 +26,39 @@ const serviceFlow = `ログイン
     ▼
 試験・修了 / 経営KPI`;
 
+const awsArchitecture = `                     Internet
+                         │
+                Route53（DNS）
+                         │
+                  CloudFront
+              （高速コンテンツ配信）
+          ┌──────────┴──────────┐
+          │                     │
+     S3（教材・画像）        ALB
+                                │
+                       ECS(Fargate)
+        ┌──────────┬──────────┬──────────┐
+        │          │          │          │
+     受講API    添削API    管理API    バッチ
+        │
+    Cognito（認証）
+        │
+ Aurora PostgreSQL(RDS)
+        │
+  CloudWatch・WAF・SES・SQS`;
+
+const awsDeploySteps = [
+  "構成図: Internet → Route53 → CloudFront → (S3 | ALB → ECS)",
+  "ECS(Fargate): 受講API / 添削API / 管理API / バッチ",
+  "認証・DB: Cognito → Aurora PostgreSQL(RDS)",
+  "横断基盤: CloudWatch · WAF · SES · SQS",
+  "1) terraform apply（VPC・RDS/Aurora・Cognito・ECS・CloudFront）",
+  "2) ECR にイメージ push → ECS サービス起動（/health）",
+  "3) CloudFront に S3+ALB、Route53 Alias、WAF を設定",
+  "4) Cognito / SES / SQS を接続しシード投入",
+  "詳細は README「AWS 構成」「AWS デプロイ手順」",
+] as const;
+
 const recommendedFlow = [
   "ログイン（デモ: learner@example.com / password123）",
   "「コース」で講座一覧を確認し、気になるコースを開く",
@@ -128,17 +161,8 @@ const steps = [
   },
   {
     title: "9. AWS デプロイ",
-    body: "本番相当は VPC / RDS / Cognito / ECS / CloudFront（Terraform 骨格）で構築します。",
-    items: [
-      "前提: AWS CLI ログイン、Terraform ≥ 1.5、Docker、ECR 権限",
-      "1) infra/terraform で terraform init → plan → apply（VPC・RDS・Cognito・ECS）",
-      "2) ECR にルート Dockerfile のイメージを push（API + 静的 Web）",
-      "3) ECS タスクに DATABASE_URL / CORS_ORIGINS / COGNITO_* / PORT を設定",
-      "4) ALB ターゲットを ECS サービスに接続し、/health で疎通確認",
-      "5) CloudFront オリジンを ALB（または S3 の静的配信）に切替",
-      "6) Cognito ユーザープール作成後、COGNITO_* を API に反映",
-      "詳細手順はリポジトリ README の「AWS デプロイ手順」を参照",
-    ],
+    body: "本番目標構成（Route53 / CloudFront / S3 / ALB / ECS / Cognito / Aurora）へのデプロイ手順です。構成図は上の「AWS Architecture」を参照。",
+    items: [...awsDeploySteps],
   },
 ] as const;
 
@@ -347,7 +371,23 @@ export function UsageGuidePanel({ open, onClose }: Props) {
             <pre>{serviceFlow}</pre>
           </figure>
 
-          <p className={styles.scrollHint}>↓ 画面ごとの手順</p>
+          <section className={styles.featured} aria-label="AWS構成">
+            <div className={styles.featuredHead}>
+              <span className={styles.featuredBadge}>AWS</span>
+              <strong>本番目標アーキテクチャ</strong>
+            </div>
+            <p>
+              Route53 で受け、CloudFront から教材（S3）と API（ALB→ECS）へ振り分けます。
+              ECS 上で受講・添削・管理・バッチを動かし、Cognito 認証と Aurora に接続します。
+            </p>
+          </section>
+
+          <figure className={`${styles.diagram} ${styles.diagramAws}`} aria-label="AWS Architecture">
+            <figcaption>AWS Architecture</figcaption>
+            <pre>{awsArchitecture}</pre>
+          </figure>
+
+          <p className={styles.scrollHint}>↓ 画面ごとの手順（9. AWS デプロイを含む）</p>
 
           <ol className={styles.steps}>
             {steps.map((step) => (
