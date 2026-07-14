@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
+from app.models.core_entities import Grade, GradeSource
 from app.models.domain import (
     AttemptStatus,
     Certificate,
@@ -26,6 +27,7 @@ from app.schemas import (
     ExamRead,
     ExamSubmit,
 )
+from app.services.learning_events import record_learning_event
 
 router = APIRouter(tags=["exams"])
 
@@ -112,6 +114,27 @@ async def submit_exam(
 
     await db.flush()
     await db.refresh(attempt)
+
+    db.add(
+        Grade(
+            enrollment_id=enrollment.id,
+            source=GradeSource.EXAM,
+            title=exam.title,
+            score=score,
+            max_score=100,
+            passed=passed,
+            exam_attempt_id=attempt.id,
+        )
+    )
+    await record_learning_event(
+        db,
+        enrollment_id=enrollment.id,
+        event_type="exam",
+        title=f"試験提出: {exam.title}",
+        detail=f"{score}点 / {'合格' if passed else '不合格'}",
+        payload={"exam_id": str(exam.id), "score": score, "passed": passed, "attempt_id": str(attempt.id)},
+    )
+    await db.flush()
     return attempt
 
 

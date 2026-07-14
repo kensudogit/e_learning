@@ -109,6 +109,7 @@ class InstallmentRead(ORMModel):
     due_date: date
     amount: Decimal
     paid: bool
+    paid_at: datetime | None = None
 
 
 class DocumentRead(ORMModel):
@@ -140,7 +141,8 @@ class OrganizationRead(ORMModel):
 
 
 class MembershipCreate(BaseModel):
-    user_id: UUID
+    user_id: UUID | None = None
+    member_email: EmailStr | None = None
     role: OrgMemberRole = OrgMemberRole.LEARNER
     is_primary: bool = False
 
@@ -154,7 +156,8 @@ class MembershipRead(ORMModel):
 
 
 class FamilyLinkCreate(BaseModel):
-    member_user_id: UUID
+    member_user_id: UUID | None = None
+    member_email: str | None = None
     relation: str = "family"
 
 

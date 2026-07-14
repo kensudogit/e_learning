@@ -126,7 +126,7 @@ export default function ContractsPage() {
       <main className="mx-auto w-full max-w-4xl px-6 pb-16">
         <h1 className="font-display text-4xl text-brand-deep">申込・契約</h1>
         <p className="mt-2 text-sm text-muted">
-          個人/法人・受付チャネル・複数講座・クーポン・分割払い・見積/請求/領収
+          個人/法人・受付チャネル・複数講座・クーポン・分割払い・見積/請求/領収 · 契約時に紙教材の発送予定を自動作成
         </p>
         {message && <p className="mt-4 text-sm text-brand-deep">{message}</p>}
         {!getToken() && (
@@ -246,7 +246,16 @@ export default function ContractsPage() {
               <button type="button" className="border border-line px-3 py-1.5" onClick={() => issueDoc("receipt")}>
                 領収書
               </button>
+              <Link href="/payments" className="border border-line px-3 py-1.5 text-brand">
+                入金管理へ
+              </Link>
+              <Link href="/shipping" className="border border-line px-3 py-1.5 text-brand">
+                教材発送へ
+              </Link>
             </div>
+            <p className="mt-2 text-xs text-muted">
+              紙教材ありの講座は契約作成時に発送予定が自動登録されます。入金は「入金」画面で記録できます。
+            </p>
             <ul className="mt-4 space-y-1 text-sm text-muted">
               {docs.map((d) => (
                 <li key={d.id}>

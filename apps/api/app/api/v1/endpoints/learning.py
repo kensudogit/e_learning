@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
+from app.models.core_entities import LearningHistory
 from app.models.domain import Enrollment, User, UserRole
 from app.models.platform import (
     Bookmark,
@@ -20,6 +21,7 @@ from app.models.platform import (
     LearningReminder,
     QuizAttempt,
 )
+from app.schemas import LearningHistoryRead
 from app.schemas.platform import (
     BookmarkCreate,
     BookmarkRead,
@@ -34,6 +36,7 @@ from app.schemas.platform import (
     ReminderCreate,
     ReminderRead,
 )
+from app.services.learning_events import record_learning_event
 
 router = APIRouter(tags=["learning"])
 
@@ -153,9 +156,47 @@ async def upsert_progress(
         ).scalar_one()
         enroll.progress_percent = int(round(100 * done / contents))
 
+    content = (
+        await db.execute(select(LearningContent).where(LearningContent.id == payload.content_id))
+    ).scalar_one_or_none()
+    event_type = "complete" if existing.completed else "view"
+    await record_learning_event(
+        db,
+        enrollment_id=enroll.id,
+        event_type=event_type,
+        title=f"学習進捗: {content.title if content else str(payload.content_id)[:8]}",
+        detail=f"{payload.progress_percent}%",
+        payload={"content_id": str(payload.content_id), "progress_percent": payload.progress_percent},
+    )
+
     await db.flush()
     await db.refresh(existing)
     return existing
+
+
+@router.get("/learning/history", response_model=list[LearningHistoryRead])
+async def list_learning_history(
+    enrollment_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[LearningHistory]:
+    stmt = select(LearningHistory).order_by(LearningHistory.occurred_at.desc()).limit(100)
+    if enrollment_id:
+        enroll = (
+            await db.execute(select(Enrollment).where(Enrollment.id == enrollment_id))
+        ).scalar_one_or_none()
+        if enroll is None or (
+            enroll.user_id != current_user.id
+            and current_user.role not in {UserRole.ADMIN, UserRole.INSTRUCTOR}
+        ):
+            raise HTTPException(status_code=404, detail="受講情報が見つかりません")
+        stmt = stmt.where(LearningHistory.enrollment_id == enrollment_id)
+    else:
+        enroll_ids = (
+            await db.execute(select(Enrollment.id).where(Enrollment.user_id == current_user.id))
+        ).scalars().all()
+        stmt = stmt.where(LearningHistory.enrollment_id.in_(list(enroll_ids) or [None]))
+    return list((await db.execute(stmt)).scalars().all())
 
 
 @router.get("/learning/progress", response_model=list[ProgressRead])

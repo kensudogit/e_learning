@@ -75,6 +75,7 @@ from app.models.platform import (
     OrganizationMembership,
     OrgMemberRole,
     PaymentMethod,
+    FamilyLink,
     ShippingAddress,
     ShippingOrder,
     ShippingStatus,
@@ -137,11 +138,27 @@ async def seed() -> None:
         admin = await ensure_user(db, "admin@example.com", "管理者", UserRole.ADMIN)
         await ensure_user(db, "corrector@example.com", "添削担当", UserRole.CORRECTOR)
         learner = await ensure_user(db, "learner@example.com", "受講者 太郎", UserRole.LEARNER)
+        family_member = await ensure_user(db, "family@example.com", "受講者 次郎", UserRole.LEARNER)
         corp = await ensure_user(
             db, "corp@example.com", "法人担当 花子", UserRole.CORPORATE_MANAGER, "サンプル株式会社"
         )
         _ = admin
 
+        if not await first_or_none(
+            db,
+            select(FamilyLink).where(
+                FamilyLink.guardian_user_id == learner.id,
+                FamilyLink.member_user_id == family_member.id,
+            ),
+        ):
+            db.add(
+                FamilyLink(
+                    guardian_user_id=learner.id,
+                    member_user_id=family_member.id,
+                    relation="子",
+                )
+            )
+            await db.flush()
         now = datetime.now(UTC)
         specs = [
             (

@@ -22,9 +22,19 @@ type Certificate = {
   issued_at: string;
 };
 
+type History = {
+  id: string;
+  enrollment_id: string;
+  event_type: string;
+  title: string;
+  detail: string | null;
+  occurred_at: string;
+};
+
 export default function MyLearningPage() {
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [certs, setCerts] = useState<Certificate[]>([]);
+  const [history, setHistory] = useState<History[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -32,9 +42,11 @@ export default function MyLearningPage() {
     return Promise.all([
       apiFetch<Enrollment[]>("/api/v1/enrollments", { token }),
       apiFetch<Certificate[]>("/api/v1/certificates/mine", { token }),
-    ]).then(([e, c]) => {
+      apiFetch<History[]>("/api/v1/learning/history", { token }),
+    ]).then(([e, c, h]) => {
       setEnrollments(e);
       setCerts(c);
+      setHistory(h);
     });
   }
 
@@ -131,6 +143,23 @@ export default function MyLearningPage() {
               </li>
             ))}
             {!certs.length && <li className="text-muted">まだありません</li>}
+          </ul>
+        </section>
+
+        <section className="mt-12">
+          <h2 className="text-lg font-medium">学習履歴</h2>
+          <ul className="mt-3 space-y-2 text-sm">
+            {history.map((h) => (
+              <li key={h.id} className="border-b border-line py-2">
+                <span className="text-muted">{h.occurred_at.slice(0, 16).replace("T", " ")}</span>
+                {" · "}
+                <span className="font-medium">{h.event_type}</span>
+                {" · "}
+                {h.title}
+                {h.detail ? `（${h.detail}）` : ""}
+              </li>
+            ))}
+            {!history.length && <li className="text-muted">学習・提出・試験の記録がここに溜まります</li>}
           </ul>
         </section>
       </main>

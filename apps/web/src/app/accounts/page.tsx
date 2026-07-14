@@ -27,6 +27,10 @@ export default function AccountsPage() {
   const [loginId, setLoginId] = useState("");
   const [orgName, setOrgName] = useState("デモ商事");
   const [orgCode, setOrgCode] = useState("DEMO-CO");
+  const [memberEmail, setMemberEmail] = useState("family@example.com");
+  const [relation, setRelation] = useState("子");
+  const [orgId, setOrgId] = useState("");
+  const [addMemberEmail, setAddMemberEmail] = useState("learner@example.com");
   const [message, setMessage] = useState<string | null>(null);
 
   async function refresh(token: string) {
@@ -41,6 +45,7 @@ export default function AccountsPage() {
     setOrgs(o);
     setFamily(f);
     setLoginId(a.login_id || "");
+    if (!orgId && o[0]) setOrgId(o[0].id);
   }
 
   useEffect(() => {
@@ -83,6 +88,40 @@ export default function AccountsPage() {
       await refresh(token);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "組織作成失敗");
+    }
+  }
+
+  async function linkFamily(e: FormEvent) {
+    e.preventDefault();
+    const token = getToken();
+    if (!token) return;
+    try {
+      await apiFetch("/api/v1/accounts/family", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ member_email: memberEmail, relation }),
+      });
+      setMessage(`家族リンクを追加しました（${memberEmail}）`);
+      await refresh(token);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "家族リンク失敗");
+    }
+  }
+
+  async function addOrgMember(e: FormEvent) {
+    e.preventDefault();
+    const token = getToken();
+    if (!token || !orgId) return;
+    try {
+      await apiFetch(`/api/v1/organizations/${orgId}/members`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({ member_email: addMemberEmail, role: "learner" }),
+      });
+      setMessage(`組織メンバーを追加しました（${addMemberEmail}）`);
+      await refresh(token);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "メンバー追加失敗");
     }
   }
 
@@ -161,6 +200,28 @@ export default function AccountsPage() {
               法人組織を作成
             </button>
           </form>
+          <form onSubmit={addOrgMember} className="mt-3 flex flex-wrap gap-2 text-sm">
+            <select
+              className="border border-line px-3 py-2"
+              value={orgId}
+              onChange={(e) => setOrgId(e.target.value)}
+            >
+              {orgs.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+            <input
+              className="border border-line px-3 py-2"
+              value={addMemberEmail}
+              onChange={(e) => setAddMemberEmail(e.target.value)}
+              placeholder="メンバーメール"
+            />
+            <button type="submit" className="border border-line px-3 py-2">
+              メンバー追加
+            </button>
+          </form>
         </section>
 
         <section className="mt-10">
@@ -171,8 +232,26 @@ export default function AccountsPage() {
                 {f.relation}: {f.member_user_id.slice(0, 8)}…
               </li>
             ))}
-            {!family.length && <li>なし（API で member_user_id を指定して登録）</li>}
+            {!family.length && <li>なし</li>}
           </ul>
+          <form onSubmit={linkFamily} className="mt-3 flex flex-wrap gap-2 text-sm">
+            <input
+              className="border border-line px-3 py-2"
+              value={memberEmail}
+              onChange={(e) => setMemberEmail(e.target.value)}
+              placeholder="家族のメール"
+            />
+            <input
+              className="w-24 border border-line px-3 py-2"
+              value={relation}
+              onChange={(e) => setRelation(e.target.value)}
+              placeholder="続柄"
+            />
+            <button type="submit" className="border border-line px-3 py-2">
+              家族リンク
+            </button>
+          </form>
+          <p className="mt-2 text-xs text-muted">デモ: family@example.com / password123</p>
         </section>
 
         <section className="mt-10">

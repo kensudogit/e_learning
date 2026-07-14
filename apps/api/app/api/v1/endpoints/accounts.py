@@ -79,9 +79,27 @@ async def add_member(
     org = (await db.execute(select(Organization).where(Organization.id == org_id))).scalar_one_or_none()
     if org is None:
         raise HTTPException(status_code=404, detail="組織が見つかりません")
-    user = (await db.execute(select(User).where(User.id == payload.user_id))).scalar_one_or_none()
+    user = None
+    if payload.user_id:
+        user = (await db.execute(select(User).where(User.id == payload.user_id))).scalar_one_or_none()
+    elif payload.member_email:
+        user = (
+            await db.execute(select(User).where(User.email == str(payload.member_email).lower()))
+        ).scalar_one_or_none()
+    else:
+        raise HTTPException(status_code=400, detail="user_id または member_email を指定してください")
     if user is None:
         raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
+    existing = (
+        await db.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.organization_id == org.id,
+                OrganizationMembership.user_id == user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=400, detail="既に所属しています")
     m = OrganizationMembership(
         organization_id=org.id,
         user_id=user.id,
@@ -129,9 +147,31 @@ async def link_family(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> FamilyLink:
-    member = (await db.execute(select(User).where(User.id == payload.member_user_id))).scalar_one_or_none()
+    member = None
+    if payload.member_user_id:
+        member = (
+            await db.execute(select(User).where(User.id == payload.member_user_id))
+        ).scalar_one_or_none()
+    elif payload.member_email:
+        member = (
+            await db.execute(select(User).where(User.email == payload.member_email.lower()))
+        ).scalar_one_or_none()
+    else:
+        raise HTTPException(status_code=400, detail="member_user_id または member_email を指定してください")
     if member is None:
         raise HTTPException(status_code=404, detail="家族メンバーが見つかりません")
+    if member.id == current_user.id:
+        raise HTTPException(status_code=400, detail="自分自身は家族リンクできません")
+    existing = (
+        await db.execute(
+            select(FamilyLink).where(
+                FamilyLink.guardian_user_id == current_user.id,
+                FamilyLink.member_user_id == member.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=400, detail="既にリンク済みです")
     link = FamilyLink(
         guardian_user_id=current_user.id,
         member_user_id=member.id,

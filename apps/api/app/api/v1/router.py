@@ -12,6 +12,7 @@ from app.api.v1.endpoints import (
     enrollments,
     exams,
     learning,
+    payments,
     shipping,
     support,
 )
@@ -30,3 +31,4 @@ api_router.include_router(contracts.router)
 api_router.include_router(accounts.router)
 api_router.include_router(learning.router)
 api_router.include_router(shipping.router)
+api_router.include_router(payments.router)

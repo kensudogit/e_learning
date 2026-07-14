@@ -10,6 +10,7 @@ type TokenResponse = { access_token: string; token_type: string };
 
 const accounts = [
   { email: "learner@example.com", label: "受講者" },
+  { email: "family@example.com", label: "家族受講者" },
   { email: "admin@example.com", label: "管理者（KPI）" },
   { email: "corrector@example.com", label: "添削担当" },
   { email: "corp@example.com", label: "法人担当" },

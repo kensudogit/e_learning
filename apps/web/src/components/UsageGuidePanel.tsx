@@ -16,16 +16,47 @@ const serviceFlow = `ログイン
     │
     ▼
 コース閲覧 / 申込・契約
-    │ クーポン · 見積 · 請求
+    │ クーポン · 見積 · 請求 · 入金
+    │ （紙教材 → 発送予定を自動作成）
     ▼
-マイ学習 / 学習管理
-    │ 動画 · PDF · SCORM · 進捗
+教材発送 / マイ学習
+    │ 進捗 · 学習履歴
     ▼
-教材発送 / 添削課題
+添削課題（マスタ提出 → 返却・成績）
     │
     ▼
 試験・修了 / 経営KPI`;
 
+/** 通信教育の業務ループ（実装済み） */
+const correspondenceLoop = `  申込・契約（/contracts）
+         │ 紙教材あり講座
+         ▼ 自動
+  ShippingOrder 予定作成 ──→ 教材発送（/shipping）
+         │
+         ▼
+  入金記録（/payments）· 分割消込
+         │
+         ▼
+  学習進捗 · LearningHistory（/my · /learning）
+         │
+         ▼
+  課題マスタ提出（/assignments）
+         │ corrector が返却
+         ▼
+  CorrectionResult + Grade + 履歴
+         │
+         ▼
+  試験合格 → 修了証 · KPI`;
+
+const recommendedFlow = [
+  "ログイン（デモ: learner@example.com / password123）",
+  "「コース」で通信教育講座を確認し詳細を開く",
+  "「申込・契約」で申込 → 紙教材の発送予定が自動作成される",
+  "「入金」で入金記録または分割回次の消込を試す",
+  "「教材発送」で自動登録された予定を確認",
+  "「添削」で課題マスタ提出 → corrector@ で返却・点数",
+  "「マイ学習」で進捗・学習履歴・試験・修了を確認",
+] as const;
 const awsArchitecture = `                     Internet
                          │
                 Route53（DNS）
@@ -160,16 +191,9 @@ const microservicesConcerns = [
   "コスト: Fargate 常時複数サービス + NAT/ALB ルール増。低負荷期はモノリス継続も選択肢",
 ] as const;
 
-const recommendedFlow = [
-  "ログイン（デモ: learner@example.com / password123）",
-  "「コース」で講座一覧を確認し、気になるコースを開く",
-  "「申込・契約」で個人/法人の申込フローを確認",
-  "「マイ学習」で進捗・ブックマーク・理解度クイズを試す",
-  "管理者なら「経営KPI」で受講者数・転換・継続を確認",
-] as const;
-
 const demoAccounts = [
   "learner@example.com … 受講者",
+  "family@example.com … 家族受講者（太郎の子リンク）",
   "admin@example.com … 管理者",
   "corrector@example.com … 添削者",
   "corp@example.com … 法人担当",
@@ -186,8 +210,8 @@ const localTips = [
 
 const steps = [
   {
-    title: "0. 最短フロー（画面操作）",
-    body: "デモアカウントでログインし、コース→申込→学習まで一通り確認できます。",
+    title: "0. 最短フロー（通信教育）",
+    body: "申込→発送自動作成→入金→学習→添削→試験まで一連で確認できます。",
     items: [...recommendedFlow],
   },
   {
@@ -203,47 +227,64 @@ const steps = [
     title: "2. コースを探す",
     body: "公開中の通信教育・法人・資格・動画講座を一覧します。",
     items: [
-      "「コース」→ カードから詳細へ",
-      "詳細でカリキュラム概要・ステータスを確認",
-      "受講開始は契約・申込完了後（デモでは申込画面から確認）",
+      "「コース」→ カードから詳細へ（通信教育タグ付きを優先）",
+      "詳細でカリキュラム・紙教材・添削・試験の有無を確認",
+      "受講開始は「申込・契約」完了後",
     ],
   },
   {
     title: "3. 申込・契約",
-    body: "個人/法人、Web/電話/代理店などチャネルを含む契約フローです。",
+    body: "個人/法人、受付チャネル、クーポン、分割払い、書類発行。紙教材あり講座は発送予定を自動作成します。",
     items: [
-      "「申込・契約」で契約一覧・新規申込を確認",
-      "クーポン / 紹介 / キャンペーンの付与イメージを確認",
-      "見積・請求・領収のドキュメント種別を確認",
-      "変更・解約・分割払いのステータス遷移を確認",
+      "「申込・契約」で講座を選んで同時申込",
+      "クーポン（例: WELCOME10）/ 紹介 / キャンペーンを付与",
+      "支払: 一括 / 分割 / 請求書払い",
+      "見積・請求・領収を発行",
+      "紙教材（shipping_required）→ ShippingOrder が自動登録（「教材発送」で確認）",
+      "変更・キャンセルは契約の「キャンセル」から",
+    ],
+  },
+  {
+    title: "3b. 入金",
+    body: "通信教育の代金入金と分割消込です（ゲートウェイ連携前の運用デモ）。",
+    items: [
+      "ナビ「入金」を開く",
+      "契約を選び金額・手段（振込/カード/コンビニ等）で入金記録",
+      "分割契約は回次ごとに「入金する」で消込（Payment + paid フラグ）",
+      "API: POST /api/v1/payments · POST /api/v1/payments/installments/{id}/pay",
     ],
   },
   {
     title: "4. マイ学習・学習管理",
-    body: "コンテンツ視聴と進捗・理解度を管理します。",
+    body: "コンテンツ視聴と進捗・理解度・学習イベント履歴を管理します。",
     items: [
       "「マイ学習」→ 受講中コースと進捗率",
-      "動画 / PDF / テキスト / SCORM のコンテンツ順と前提条件",
-      "ブックマーク・理解度クイズ・再受験",
-      "期限・リマインダー・オフライン学習フラグ",
+      "学習履歴タイムライン（view / complete / submit / exam / correction）",
+      "「学習管理」→ 動画/PDF/テキスト/SCORM・前提科目・BM・理解度クイズ",
+      "試験を受ける → 合否・修了証・Grade / LearningHistory に記録",
+      "継続更新（renew）もマイ学習から",
     ],
   },
   {
     title: "5. 教材発送・添削",
-    body: "紙教材と添削課題の運用画面です。",
+    body: "紙教材の発送運用と添削課題（マスタ・成績連携）です。",
     items: [
-      "「教材発送」→ 予定出荷・分割出荷・在庫・住所変更",
-      "再送・返品・海外発送・版管理・eラーニング+紙セット",
-      "「添削」→ 課題提出・添削者割当・フィードバック",
+      "「教材発送」→ 契約時に自動作成された予定・分割出荷・在庫・住所",
+      "再送・返品・海外・版管理・eラーニング+紙セット",
+      "「添削」→ 課題マスタを選んで提出（学習履歴に submit）",
+      "corrector@ でログイン → 添削待ちを返却（点数入力）",
+      "返却時: CorrectionResult + Grade + 履歴（correction）を自動作成",
+      "添削結果一覧で点数・TAT（ターンアラウンド）を確認",
     ],
   },
   {
     title: "6. アカウント・組織",
-    body: "契約者と受講者、法人メンバー、家族リンクを管理します。",
+    body: "契約者/受講者、法人メンバー、家族リンクを管理します。",
     items: [
-      "「アカウント」→ 契約者/受講者の切替イメージ",
-      "組織管理者・複数組織メンバーシップ",
-      "ログインID変更・停止・退会・個人情報削除",
+      "「アカウント」でプロフィール・ログインID変更・利用停止",
+      "法人組織の作成とメンバー追加（メール指定可）",
+      "家族リンク: member_email で追加（デモ: family@example.com / 続柄「子」）",
+      "シード済み: learner（保護者）→ family（子）の FamilyLink",
     ],
   },
   {
@@ -251,7 +292,7 @@ const steps = [
     body: "問い合わせ導線と経営ダッシュボードです。",
     items: [
       "「FAQ・問合せ」でサポート導線を確認",
-      "「経営KPI」で受講者数・申込転換・継続率を確認",
+      "「経営KPI」で受講者数・申込転換・継続率・添削TATを確認",
       "API: /api/v1/analytics/kpi ・ /dashboard",
     ],
   },
@@ -422,8 +463,8 @@ export function UsageGuidePanel({ open, onClose }: Props) {
             <p className={styles.heroKicker}>Learning platform demo</p>
             <h2 className={styles.heroTitle}>e-Learning — 申込 · 学習 · 運用</h2>
             <p className={styles.heroLead}>
-              通信教育から法人研修・資格・動画・紙教材・添削・認定までを一つの画面群で確認するデモ向けワークフローです。
-              まずログイン → コース → 申込 → マイ学習の順が最短です。
+              通信教育の申込・入金・紙教材発送・学習履歴・添削成績・修了までを一連で確認できるデモです。
+              最短はログイン → 申込・契約 → 入金 / 発送 → 添削 → マイ学習です。
             </p>
             <div className={styles.stack} aria-label="Tech stack">
               {techStack.map((tag) => (
@@ -440,18 +481,18 @@ export function UsageGuidePanel({ open, onClose }: Props) {
               <strong>エンドツーエンド・学習フロー</strong>
             </div>
             <p>
-              ログイン → コース閲覧 → 申込・契約 → 学習進捗 → 教材発送 / 添削 → 試験・修了 → 経営KPI
-              までを一連で確認します。
+              ログイン → コース → 申込・契約（発送自動作成）→ 入金 → 学習・履歴 → 添削（成績連携）→
+              試験・修了 → 経営KPI までを一連で確認します。
             </p>
           </section>
 
           <section className={styles.featured} aria-label="推奨フロー">
             <div className={styles.featuredHead}>
               <span className={styles.featuredBadge}>Recommended</span>
-              <strong>最短・安全な進め方</strong>
+              <strong>通信教育の最短確認手順</strong>
             </div>
             <p>
-              デモ受講者でログインし、コース詳細と申込画面を見たあと、マイ学習で進捗を確認します。法人・添削は別アカウントで切り替えます。
+              learner で申込すると紙教材の発送予定が自動作成されます。入金・添削は別画面／別ロールで切り替えます。
             </p>
             <ul className={styles.items}>
               {recommendedFlow.map((item) => (
@@ -487,6 +528,28 @@ export function UsageGuidePanel({ open, onClose }: Props) {
           <figure className={styles.diagram} aria-label="Service topology">
             <figcaption>Service topology</figcaption>
             <pre>{serviceFlow}</pre>
+          </figure>
+
+          <section className={styles.featured} aria-label="通信教育ループ">
+            <div className={styles.featuredHead}>
+              <span className={styles.featuredBadge}>Correspondence</span>
+              <strong>通信教育機能（実装済み）</strong>
+            </div>
+            <p>
+              契約時の発送自動作成、入金・分割消込、課題マスタ添削と成績連携、学習履歴タイムライン、家族メールリンクを追加済みです。
+            </p>
+            <ul className={styles.items}>
+              <li>契約 → 紙教材の ShippingOrder 自動登録（/shipping）</li>
+              <li>入金記録・分割消込（/payments）</li>
+              <li>添削返却 → CorrectionResult / Grade / 履歴</li>
+              <li>マイ学習の学習履歴（view / submit / exam / correction）</li>
+              <li>家族リンク・組織メンバーをメールで追加（family@example.com）</li>
+            </ul>
+          </section>
+
+          <figure className={`${styles.diagram} ${styles.diagramAws}`} aria-label="Correspondence loop">
+            <figcaption>Correspondence loop</figcaption>
+            <pre>{correspondenceLoop}</pre>
           </figure>
 
           <section className={styles.featured} aria-label="AWS構成">
@@ -548,7 +611,9 @@ export function UsageGuidePanel({ open, onClose }: Props) {
             <pre>{microservicesArchitecture}</pre>
           </figure>
 
-          <p className={styles.scrollHint}>↓ 画面ごとの手順（9. ECS×Docker / 10. マイクロサービス化 含む）</p>
+          <p className={styles.scrollHint}>
+            ↓ 画面手順（0〜7 通信教育 / 3b 入金 / 8 ローカル / 9 ECS / 10 マイクロサービス）
+          </p>
 
           <ol className={styles.steps}>
             {steps.map((step) => (
@@ -565,7 +630,7 @@ export function UsageGuidePanel({ open, onClose }: Props) {
           </ol>
 
           <p className={styles.footer}>
-            ▼▲ で開閉 · ドラッグで移動 · × で閉じる · 常用はログイン→コース→申込→マイ学習 · 役割はデモアカウントで切替
+            ▼▲ で開閉 · ドラッグで移動 · × で閉じる · 通信教育は申込→入金→発送→添削→マイ学習 · 役割はデモアカウントで切替
           </p>
         </div>
       ) : null}

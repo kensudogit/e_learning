@@ -160,11 +160,38 @@ class AssignmentSubmit(BaseModel):
     enrollment_id: UUID
     title: str = Field(min_length=1, max_length=255)
     body: str = Field(min_length=1)
+    assignment_id: UUID | None = None  # 課題マスタ（任意）
 
 
 class AssignmentFeedback(BaseModel):
     feedback: str = Field(min_length=1)
     status: str = "returned"
+    score: int | None = Field(default=None, ge=0, le=100)
+    assignment_id: UUID | None = None
+
+
+class AssignmentMasterRead(ORMModel):
+    id: UUID
+    course_id: UUID
+    code: str
+    title: str
+    description: str | None
+    max_score: int
+    requires_correction: bool
+    due_days: int | None = None
+
+
+class CorrectionResultRead(ORMModel):
+    id: UUID
+    assignment_id: UUID | None
+    submission_id: UUID | None
+    enrollment_id: UUID
+    corrector_id: UUID | None
+    score: int | None
+    status: str
+    feedback: str | None
+    turnaround_hours: int | None
+    corrected_at: datetime
 
 
 class AssignmentRead(ORMModel):
@@ -178,6 +205,15 @@ class AssignmentRead(ORMModel):
     submitted_at: datetime
     reviewed_at: datetime | None
     turnaround_hours: int | None = None
+
+
+class LearningHistoryRead(ORMModel):
+    id: UUID
+    enrollment_id: UUID
+    event_type: str
+    title: str
+    detail: str | None
+    occurred_at: datetime
 
 
 # --- Material ---

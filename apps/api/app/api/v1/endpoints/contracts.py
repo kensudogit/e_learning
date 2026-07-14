@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
-from app.models.domain import Course, Enrollment, EnrollmentStatus, User, UserRole
+from app.models.domain import Course, Enrollment, EnrollmentStatus, Material, User, UserRole
 from app.models.platform import (
     BillingDocument,
     Contract,
@@ -23,6 +23,9 @@ from app.models.platform import (
     DocumentType,
     InstallmentSchedule,
     PaymentMethod,
+    ShippingAddress,
+    ShippingOrder,
+    ShippingStatus,
 )
 from app.schemas.platform import (
     ContractChangeCreate,
@@ -149,6 +152,53 @@ async def create_contract(
                 end_date=item.end_date or contract.end_date,
             )
         )
+
+        # 紙教材（shipping_required）があれば分割発送予定を自動作成
+        materials = (
+            await db.execute(
+                select(Material).where(
+                    Material.course_id == item.course_id,
+                    Material.shipping_required.is_(True),
+                )
+            )
+        ).scalars().all()
+        if materials:
+            addr = (
+                await db.execute(
+                    select(ShippingAddress)
+                    .where(ShippingAddress.user_id == learner_id)
+                    .order_by(ShippingAddress.is_default.desc(), ShippingAddress.created_at.asc())
+                )
+            ).scalars().first()
+            if addr is None:
+                addr = ShippingAddress(
+                    user_id=learner_id,
+                    label="契約時自動登録",
+                    postal_code="100-0001",
+                    country="JP",
+                    prefecture="東京都",
+                    city="千代田区",
+                    address_line="1-1（契約時仮住所・変更可）",
+                    is_default=True,
+                )
+                db.add(addr)
+                await db.flush()
+            split_group = f"AUTO-{contract.contract_no}-{str(enrollment.id)[:8]}"
+            for seq, mat in enumerate(materials, start=1):
+                db.add(
+                    ShippingOrder(
+                        enrollment_id=enrollment.id,
+                        contract_id=contract.id,
+                        address_id=addr.id,
+                        material_id=mat.id,
+                        status=ShippingStatus.SCHEDULED,
+                        scheduled_ship_date=(contract.start_date or date.today())
+                        + timedelta(days=2 + (seq - 1) * 14),
+                        split_group=split_group,
+                        split_sequence=seq,
+                        is_overseas=addr.country != "JP",
+                    )
+                )
 
     # 分割払いスケジュール
     if payload.payment_method == PaymentMethod.INSTALLMENT and payload.installment_count:

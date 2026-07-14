@@ -9,6 +9,7 @@ const links = [
   { href: "/tables", label: "主要テーブル" },
   { href: "/courses", label: "コース" },
   { href: "/contracts", label: "申込・契約" },
+  { href: "/payments", label: "入金" },
   { href: "/my", label: "マイ学習" },
   { href: "/learning", label: "学習管理" },
   { href: "/shipping", label: "教材発送" },
