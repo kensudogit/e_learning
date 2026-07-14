@@ -48,6 +48,10 @@ class UserRead(ORMModel):
     full_name: str
     role: UserRole
     organization_name: str | None
+    login_id: str | None = None
+    is_contractor: bool = False
+    account_status: str = "active"
+    phone: str | None = None
     is_active: bool
     created_at: datetime
 

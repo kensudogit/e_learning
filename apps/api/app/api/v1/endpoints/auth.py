@@ -41,6 +41,8 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
     user = result.scalar_one_or_none()
     if user is None or not user.hashed_password or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="メールまたはパスワードが正しくありません")
+    if not user.is_active or getattr(user, "account_status", "active") in {"suspended", "withdrawn", "pii_deleted"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="アカウントが利用停止または退会済みです")
 
     token = create_access_token(str(user.id), {"role": user.role.value, "email": user.email})
     return Token(access_token=token)

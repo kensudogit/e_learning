@@ -60,6 +60,28 @@ DATABASE_URL=postgresql+asyncpg://<user>:<password>@localhost:5432/<dbname>
 スキーマ定義: `sql/001_schema.sql`  
 マイグレーション: `apps/api/alembic`（Alembic + asyncpg）
 
+## デプロイ（Docker）
+
+リポジトリ直下の `Dockerfile` が **API（FastAPI）** をビルドします。  
+（PaaS がルートの `Dockerfile` を要求するため。Web は `apps/web/Dockerfile` を別サービスで指定）
+
+```bash
+# ローカル確認
+docker build -t elearning-api .
+docker run --rm -p 8000:8000 --env-file .env elearning-api
+```
+
+Railway 利用時は `railway.toml` で `dockerfilePath = "Dockerfile"` とヘルスチェック `/health` を設定済みです。
+
+### 申込・契約 / アカウント / 学習 / 発送
+
+| 領域 | 画面 | 主な API |
+|------|------|----------|
+| 申込・契約 | `/contracts` | `/api/v1/contracts`（個人/法人・チャネル・複数講座・クーポン・分割・変更キャンセル・見積請求領収） |
+| アカウント | `/accounts` | `/api/v1/accounts/*` `/api/v1/organizations`（契約者/受講者・複数企業・家族・ID変更・停止・PII削除） |
+| 学習管理 | `/learning` | `/api/v1/learning/*`（動画/PDF/テキスト/SCORM・前提・進捗・BM・理解度テスト再受験・督促・オフライン） |
+| 教材発送 | `/shipping` | `/api/v1/shipping/*`（発送時期・分割・在庫・住所・再発送・返送・海外・版管理・セット） |
+
 ## 実装済み機能
 
 ### 教育サービス

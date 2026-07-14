@@ -24,6 +24,7 @@ from app.models.domain import (
     User,
     UserRole,
 )
+import app.models.platform as _platform  # noqa: F401
 
 __all__ = [
     "Application",

@@ -1,0 +1,17 @@
+# ルートビルド用（API Dockerfile）
+.git
+.github
+.env
+.env.*
+**/.venv
+**/node_modules
+**/.next
+**/__pycache__
+**/*.pyc
+**/tests
+apps/web
+infra
+scripts
+sql
+README.md
+docker-compose.yml

@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:3000"
 
+    # Frontend (開発時のサービス画面)
+    web_base_url: str = "http://127.0.0.1:3000"
+
     # AWS Cognito (本番・ステージング用)
     cognito_region: str = "ap-northeast-1"
     cognito_user_pool_id: str = ""

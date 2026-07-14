@@ -1,0 +1,9 @@
+# Railway / 類似 PaaS 向け（ルート Dockerfile を明示）
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
