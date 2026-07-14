@@ -113,7 +113,7 @@ export default function MyLearningPage() {
                 <button type="button" className="text-brand underline" onClick={() => takeExam(e.id)}>
                   試験を受ける
                 </button>
-                <Link href={`/courses/${e.course_id}`} className="text-muted hover:text-brand">
+                <Link href={`/courses/detail/?id=${encodeURIComponent(e.course_id)}`} className="text-muted hover:text-brand">
                   コース詳細
                 </Link>
               </div>

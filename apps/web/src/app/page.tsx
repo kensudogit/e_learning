@@ -1,18 +1,11 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { AppNav } from "@/components/AppNav";
+import { API_BASE } from "@/lib/api";
 
-const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
-
-async function fetchHealth(): Promise<{ status: string; app: string; env: string } | null> {
-  try {
-    const res = await fetch(`${apiBase}/health`, { next: { revalidate: 10 } });
-    if (!res.ok) return null;
-    return res.json();
-  } catch {
-    return null;
-  }
-}
-
+type Health = { status: string; app: string; env: string };
 type CourseSummary = {
   id: string;
   code: string;
@@ -21,16 +14,6 @@ type CourseSummary = {
   price: string | number | null;
   status: string;
 };
-
-async function fetchCourses(): Promise<CourseSummary[]> {
-  try {
-    const res = await fetch(`${apiBase}/api/v1/courses`, { next: { revalidate: 10 } });
-    if (!res.ok) return [];
-    return res.json();
-  } catch {
-    return [];
-  }
-}
 
 const services = [
   "個人向け通信教育",
@@ -42,8 +25,20 @@ const services = [
   "試験・修了認定",
 ];
 
-export default async function Home() {
-  const [health, courses] = await Promise.all([fetchHealth(), fetchCourses()]);
+export default function Home() {
+  const [health, setHealth] = useState<Health | null>(null);
+  const [courses, setCourses] = useState<CourseSummary[]>([]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/health`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setHealth)
+      .catch(() => setHealth(null));
+    fetch(`${API_BASE}/api/v1/courses`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setCourses)
+      .catch(() => setCourses([]));
+  }, []);
 
   return (
     <div className="relative flex min-h-full flex-1 flex-col overflow-hidden">
@@ -66,13 +61,13 @@ export default async function Home() {
 
         <div className="mt-10 flex flex-wrap items-center gap-4">
           <Link
-            href="/courses"
+            href="/courses/"
             className="inline-flex h-12 items-center justify-center bg-brand px-7 text-sm font-medium text-white transition-colors hover:bg-brand-deep"
           >
             コースを見る
           </Link>
           <Link
-            href="/dashboard"
+            href="/dashboard/"
             className="inline-flex h-12 items-center justify-center border border-line bg-surface/70 px-7 text-sm font-medium text-foreground backdrop-blur transition-colors hover:border-brand"
           >
             経営KPI
@@ -93,7 +88,10 @@ export default async function Home() {
             <ul className="mt-4 space-y-4">
               {courses.slice(0, 4).map((c) => (
                 <li key={c.id} className="border-b border-line/70 pb-3">
-                  <Link href={`/courses/${c.id}`} className="text-base font-medium text-foreground hover:text-brand">
+                  <Link
+                    href={`/courses/detail/?id=${encodeURIComponent(c.id)}`}
+                    className="text-base font-medium text-foreground hover:text-brand"
+                  >
                     {c.title}
                   </Link>
                   <p className="mt-1 text-xs text-muted">

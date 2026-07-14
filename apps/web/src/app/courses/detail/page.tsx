@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { AppNav } from "@/components/AppNav";
 import { apiFetch } from "@/lib/api";
 import { Course, SERVICE_LABELS, getToken } from "@/lib/types";
@@ -12,8 +12,9 @@ type Material = { id: string; title: string; material_type: string; shipping_req
 type Media = { id: string; title: string; media_type: string; is_live_now: boolean; stream_url: string | null };
 type Exam = { id: string; title: string; passing_score: number; status: string };
 
-export default function CourseDetailPage() {
-  const params = useParams<{ id: string }>();
+function CourseDetailInner() {
+  const search = useSearchParams();
+  const id = search.get("id") || "";
   const [course, setCourse] = useState<Course | null>(null);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -22,15 +23,18 @@ export default function CourseDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!params.id) return;
+    if (!id) {
+      setError("コースIDが指定されていません");
+      return;
+    }
     const token = getToken();
     const opts = token ? { token } : {};
     Promise.all([
-      apiFetch<Course>(`/api/v1/courses/${params.id}`, opts),
-      apiFetch<Lesson[]>(`/api/v1/courses/${params.id}/lessons`, opts).catch(() => []),
-      apiFetch<Material[]>(`/api/v1/materials?course_id=${params.id}`, opts).catch(() => []),
-      apiFetch<Media[]>(`/api/v1/media?course_id=${params.id}`, opts).catch(() => []),
-      apiFetch<Exam[]>(`/api/v1/exams?course_id=${params.id}`, opts).catch(() => []),
+      apiFetch<Course>(`/api/v1/courses/${id}`, opts),
+      apiFetch<Lesson[]>(`/api/v1/courses/${id}/lessons`, opts).catch(() => []),
+      apiFetch<Material[]>(`/api/v1/materials?course_id=${id}`, opts).catch(() => []),
+      apiFetch<Media[]>(`/api/v1/media?course_id=${id}`, opts).catch(() => []),
+      apiFetch<Exam[]>(`/api/v1/exams?course_id=${id}`, opts).catch(() => []),
     ])
       .then(([c, l, m, v, e]) => {
         setCourse(c);
@@ -40,13 +44,13 @@ export default function CourseDetailPage() {
         setExams(e);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "取得失敗"));
-  }, [params.id]);
+  }, [id]);
 
   return (
     <div className="min-h-full bg-background">
       <AppNav />
       <main className="mx-auto w-full max-w-3xl px-6 pb-16">
-        <Link href="/courses" className="text-sm text-brand">
+        <Link href="/courses/" className="text-sm text-brand">
           ← コース一覧
         </Link>
         {error && <p className="mt-6 text-sm text-accent">{error}</p>}
@@ -116,5 +120,13 @@ export default function CourseDetailPage() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function CourseDetailPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-sm text-muted">読み込み中…</div>}>
+      <CourseDetailInner />
+    </Suspense>
   );
 }

@@ -131,7 +131,7 @@ export default function CoursesPage() {
                 {course.qualification_name ? ` / ${course.qualification_name}` : ""}
               </p>
               <div className="mt-4 flex gap-3">
-                <Link href={`/courses/${course.id}`} className="text-sm text-brand hover:text-brand-deep">
+                <Link href={`/courses/detail/?id=${encodeURIComponent(course.id)}`} className="text-sm text-brand hover:text-brand-deep">
                   詳細
                 </Link>
                 <button

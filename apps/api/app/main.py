@@ -27,9 +27,20 @@ async def lifespan(_: FastAPI):
         async with asyncio.timeout(8):
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-            print("[adinfra] database schema ready", flush=True)
+            print("[elearning] database schema ready", flush=True)
     except Exception as exc:  # noqa: BLE001
         print(f"[warn] database init skipped: {exc!r}", flush=True)
+
+    # Demo catalog (best-effort; keeps UI useful on fresh Railway DB)
+    try:
+        async with asyncio.timeout(20):
+            from app.scripts.seed import seed
+
+            await seed()
+            print("[elearning] demo seed applied", flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[warn] demo seed skipped: {exc!r}", flush=True)
+
     yield
     try:
         await engine.dispose()
@@ -74,7 +85,7 @@ def _public_portal_html(settings) -> str:
     <div class="links">
       <a href="/docs">API ドキュメント</a>
       <a class="secondary" href="/health">Health</a>
-      <a class="secondary" href="{web_link}">サービス画面</a>
+      <a class="secondary" href="/courses/">サービス画面</a>
     </div>
   </main>
 </body>
